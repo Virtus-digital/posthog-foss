@@ -27,7 +27,7 @@
 #
 # DERLEME YAMASI (yalniz web imaji) — BILEREK, sessiz degil
 #   FOSS agacinda `ee/` YOK ama upstream Dockerfile onu uc yerde istiyor:
-#   iki `COPY ... ee ee/` satiri ve `compileall` listesindeki `ee`. Olduğu
+#   iki `COPY ... ee ee/` satiri ve `compileall` listesindeki `ee`. Oldugu
 #   gibi derlenmez (COPY kaynagi yok). "Dockerfile'i yamala" adimi bu uc
 #   yeri SILIYOR ve her birinin TAM BIR KEZ eslesmesini istiyor; upstream
 #   Dockerfile degisirse adim kirmizi yanar, yama sessizce yanlis yere
@@ -52,7 +52,8 @@
 #   kaynak harita yuklemesi YOK (Dockerfile o adimi gizli anahtar yoksa
 #   atliyor ve .map dosyalarini imajda birakiyor; GITHUB_* build-arg'lari
 #   bilerek verilmiyor) · DockerHub/ECR yok, yalniz GHCR · onbellek YOK
-#   (derleme seyrek ve elle; mode=max katmanlari GB mertebesinde).
+#   (derleme seyrek ve elle; mode=max katmanlari GB mertebesinde) ·
+#   buildx surucusu `docker` (gerekce "Set up Docker Buildx" adiminda).
 name: imaj
 
 on:
@@ -194,8 +195,25 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # driver: docker — BILEREK. Varsayilan `docker-container` surucusu
+      # builder'i dockerd'in `--cgroup-parent`ini DEVRALMADAN host kokunde
+      # (`/docker/buildx/<id>`, memory.max=max) aciyor (K8s-structure
+      # docs/platform/23 §5k "BILINEN SINIR", yerelde olculdu). O zaman
+      # Dockerfile.node'un 16 GB heap'li turbo derlemesi dind'in 24Gi
+      # sinirinin DISINDA kosar ve node'da global OOM uretebilir.
+      # `docker` surucusu dockerd'in kendi (gomulu) builder'i ve dockerd'in
+      # cgroup-parent'ini izliyor: cgroup-parent duzeltmesinden ONCEKI
+      # olcumde gomulu builder `/docker/buildkit`, yani dockerd'in o zamanki
+      # varsayilan parent'i altindaydi (docs/23, fra-2/3/5/7 tablosu). Bu
+      # havuzda DOGRULANMADI: ilk derlemede dind konteynerinin bellek
+      # zirvesi kps'te (container="dind") derlemeyi tasimali. Bedeli:
+      # registry cache-to yok (zaten kullanilmiyor), tek platform (zaten
+      # yalniz amd64).
+      # Kaynak: deploy PR #1427, App incelemesi F1.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+        with:
+          driver: docker
 
       - name: Build and push
         id: build
