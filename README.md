@@ -15,13 +15,13 @@ Rust servisleri (capture, feature-flags, property-defs-rs …) bu depodan
 **derlenmiyor**; upstream'in `ghcr.io/posthog/posthog/*` imajları digest'le
 sabitleniyor. Gerekçe K8s-structure'daki karar kaydında.
 
-Son güncelleme: 2026-10-16
+Son güncelleme: 2026-10-17
 
 ## Bu dalda ne var, ne yok
 
 Varsayılan dal `virtus` upstream koduyla **ortak geçmiş taşımıyor**. İçinde
 yalnız bu dosya ve `.github/workflows/imaj.yml` var. Upstream kodu `master`
-dalında duruyor ve **Sync fork** ile elle, bilerek güncelleniyor.
+dalında duruyor ama derleme onu **kullanmıyor** (aşağıda *Güncelleme yordamı*).
 
 | Ne | Neden |
 |---|---|
@@ -58,27 +58,35 @@ başkası tetiklerse iş `skipped` olur, runner açılmaz.
 
 ## Güncelleme yordamı
 
-1. Fork'u senkronla (GitHub arayüzü → **Sync fork**, ya da
-   `gh repo sync Virtus-digital/posthog-foss --branch master`).
-2. Derlenecek commit'i seç (genelde `master`'ın ucu):
+⚠️ **2026-10-17'de değişti.** İlk yordam *"fork'u senkronla, master'dan
+commit seç"* diyordu ve kaynak kapısı commit'in upstream master
+**geçmişinde** olmasını istiyordu. İlk derleme (koşu 39028229557) bu kapıda
+düştü ve sebebi ölçüldü: FOSS aynasının master'ı upstream
+PostHog/posthog'un ham geçmişi + en üstte **tek** bir *"Sync and remove all
+non-FOSS parts"* commit'i, ve her senkronda o commit **yeniden yazılıyor**.
+Önceki senkronun commit'i (`8f87779`) yeni master'ın geçmişinde değil
+(compare: `diverged`, ahead_by 100, behind_by 1). Geçmişin geri kalanı
+`ee/`'li ham upstream commit'leri. Yani derlenebilecek tek FOSS ağacı
+**o anki uç**.
+
+1. Upstream ucunu oku:
 
    ```sh
-   COMMIT=$(gh api repos/Virtus-digital/posthog-foss/commits/master --jq .sha)
+   COMMIT=$(git ls-remote https://github.com/PostHog/posthog-foss refs/heads/master | cut -f1)
    ```
 
-3. Derlemeyi başlat:
+2. Derlemeyi başlat:
 
    ```sh
    gh workflow run imaj.yml -R Virtus-digital/posthog-foss --ref virtus -f commit="$COMMIT"
    ```
 
-4. Koşunun özetindeki iki digest'i deploy'daki manifestlere yaz.
+3. Koşunun özetindeki iki digest'i deploy'daki üretece yaz
+   (`platform-fra/posthog/uret/README.md` → *Sürüm yükseltme*).
 
-Kaynak kapısı derlemeden önce commit'in `PostHog/posthog-foss` master
-geçmişinde olduğunu ölçüyor (compare API'si `identical`/`ahead`); bu fork'a
-yama girerse sha upstream'de olmaz ve derleme durur. Geçmiş kapısı tek başına
-FOSS ağacını garanti etmiyor: FOSS aynasının geçmişi upstream'in ham
-commit'lerini de taşıyor ve onların ağacında `ee/` var (2026-10-16'da
-ölçüldü). Bu yüzden checkout'tan sonra `ee/`'nin yokluğu iki imaj için de
-ayrıca ölçülüyor; derlenebilir commit'ler aynanın *"Sync and remove all
-non-FOSS parts"* commit'leri. Aynı etiket ikinci kez derlenmez.
+Kaynak kapısı derlemeden önce commit'in `PostHog/posthog-foss` master'ının
+**ucu** olduğunu `git ls-remote` ile ölçüyor ve ağacı **upstream'den**
+checkout ediyor; fork'un `master`'ı derlemede kullanılmıyor (Sync fork
+gerekmez). Upstream derleme sırasında yeniden senkronlarsa kapı kırmızı
+yanar, yeni uçla tekrar tetiklenir. Checkout'tan sonra `ee/`'nin yokluğu
+iki imaj için de ayrıca ölçülüyor. Aynı etiket ikinci kez derlenmez.

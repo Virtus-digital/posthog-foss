@@ -11,19 +11,22 @@
 #   kodu tasimiyor: yalniz bu workflow + README.md. Yordam: README.md.
 #
 # KAYNAK KAPISI
-#   Girdi bir commit (40 hex). Derlenen agac o commit'in agaci ve commit
-#   PostHog/posthog-foss master'inin GECMISINDE olmak ZORUNDA (compare
-#   API'si: `identical` ya da `ahead`). Commit kimligi icerik kimligi oldugu
-#   icin "fork agaci = upstream agaci" esitligi ayrica olculmuyor: ayni sha
-#   ayni agac. Fork'a yama girerse sha upstream'de olmaz ve derleme durur.
-#   Commit bu fork'ta da bulunmali (checkout buradan): once "Sync fork".
-#   ⚠️ Gecmis kapisi tek basina FOSS agacini GARANTILEMIYOR: FOSS aynasinin
-#   gecmisi upstream'in kendi commit'lerini de tasiyor (olculdu 2026-10-16:
-#   upstream PostHog/posthog commit'i 026d065d48 posthog-foss compare'de
-#   `ahead`), ve o commit'lerin agacinda ee/ VAR. Bu yuzden "FOSS agaci mi"
-#   adimi checkout'tan sonra ee/'nin yoklugunu iki imaj icin de ayrica
-#   olcuyor; FOSS agaci yalniz "Sync and remove all non-FOSS parts"
-#   commit'leridir.
+#   Girdi bir commit (40 hex) ve PostHog/posthog-foss'un `master` ucu
+#   OLMAK ZORUNDA (`git ls-remote`, derleme aninda). Kaynak agac o uctan
+#   checkout ediliyor (repository: PostHog/posthog-foss), fork'un master'indan
+#   DEGIL.
+#   NEDEN YALNIZ UC (2026-10-17 olculdu, ilk derleme 39028229557 bu kapinin
+#   onceki hali yuzunden dustu): FOSS aynasinin master'i = upstream
+#   PostHog/posthog'un ham gecmisi + EN USTTE tek bir "Sync and remove all
+#   non-FOSS parts" commit'i, ve her senkronda o tek commit YENIDEN YAZILIYOR.
+#   Onceki senkronun commit'i (8f87779) yeni master'in gecmisinde degil:
+#   compare `diverged`, ahead_by 100, behind_by 1, merge base = onun ebeveyni.
+#   Yani "master gecmisinde mi" kapisi yalniz ucu kabul ediyordu ve gecmisin
+#   geri kalani ee/'li ham commit'ler (onlari "FOSS agaci mi" adimi eliyor).
+#   Ucta olmak, commit'in upstream'in KENDI ref'inin gosterdigi agac oldugunu
+#   kanitliyor; fork agindaki paylasilan nesneler bu esitligi saglayamaz.
+#   Bedeli: yalniz o anki uc derlenebilir; derleme sirasinda upstream yeniden
+#   senkronlarsa kapi kirmizi yanar, yeni uc ile tekrar tetiklenir.
 #
 # DERLEME YAMASI (yalniz web imaji) — BILEREK, sessiz degil
 #   FOSS agacinda `ee/` YOK ama upstream Dockerfile onu uc yerde istiyor:
@@ -60,7 +63,7 @@ on:
   workflow_dispatch:
     inputs:
       commit:
-        description: "PostHog/posthog-foss master gecmisindeki commit (40 hex). Bu fork'ta da bulunmali (once Sync fork)."
+        description: "PostHog/posthog-foss master'inin GUNCEL ucu (40 hex): git ls-remote https://github.com/PostHog/posthog-foss refs/heads/master"
         required: true
         type: string
 
@@ -99,7 +102,7 @@ jobs:
     env:
       COMMIT: ${{ inputs.commit }}
       IMAJ: ${{ matrix.imaj }}
-      UPSTREAM_API: https://api.github.com/repos/PostHog/posthog-foss
+      UPSTREAM: https://github.com/PostHog/posthog-foss
     steps:
       # ARC'de docker dind sidecar'indan geliyor; yoksa sebebi sidecar'in
       # kendisi. paperclip imaj.yml'deki ayni yoklama.
@@ -113,32 +116,20 @@ jobs:
             echo "::error::docker istemcisi var ama sunucuya baglanamiyor."
             exit 1; }
 
-      - name: Girdiyi dogrula, kaynagi upstream'de ara
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Girdiyi dogrula, upstream ucuyla karsilastir
         run: |
           set -euo pipefail
           if ! printf '%s' "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'; then
             echo "gecersiz commit: '$COMMIT' (beklenen: 40 hex, kucuk harf)" >&2
             exit 1
           fi
-          # compare/<commit>...master: master commit'in onundeyse `ahead`,
-          # ayniysa `identical`. `behind`/`diverged` => commit master
-          # gecmisinde degil. per_page=1 yaniti kucuk tutuyor; ust duzey
-          # `status` alani dosya satirlarinin status'undan (added/modified/...)
-          # degerleriyle ayrisiyor.
-          yanit="$(curl -fsS -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H 'Accept: application/vnd.github+json' \
-            "${UPSTREAM_API}/compare/${COMMIT}...master?per_page=1")" || {
-            echo "KAYNAK KAPISI: compare API okunamadi (commit upstream'de yok olabilir)" >&2
-            exit 1; }
-          durum="$(printf '%s' "$yanit" | grep -oE '"status": *"(ahead|behind|identical|diverged)"' | head -1 | grep -oE '(ahead|behind|identical|diverged)' || true)"
-          echo "upstream compare ${COMMIT}...master -> ${durum:-<okunamadi>}"
-          case "$durum" in
-            ahead|identical) ;;
-            *) echo "KAYNAK KAPISI: commit PostHog/posthog-foss master gecmisinde degil" >&2; exit 1 ;;
-          esac
-          echo "- kaynak: \`${COMMIT}\` (upstream compare: ${durum})" >> "$GITHUB_STEP_SUMMARY"
+          uc="$(git ls-remote "$UPSTREAM" refs/heads/master | awk '{print $1}')"
+          echo "upstream master ucu: ${uc:-<okunamadi>}"
+          if [ "$uc" != "$COMMIT" ]; then
+            echo "KAYNAK KAPISI: commit PostHog/posthog-foss master'inin ucu degil (FOSS aynasi her senkronda ucu yeniden yaziyor; guncel ucla tekrar tetikle)" >&2
+            exit 1
+          fi
+          echo "- kaynak: \`${COMMIT}\` = PostHog/posthog-foss master ucu (derleme ani)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
@@ -158,6 +149,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          repository: PostHog/posthog-foss
           ref: ${{ inputs.commit }}
           persist-credentials: false
 
@@ -228,6 +220,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ inputs.commit }}
+            io.virtusdigital.posthog.source-repo=PostHog/posthog-foss
             org.opencontainers.image.licenses=MIT
             io.virtusdigital.posthog.patched-dockerfile=${{ matrix.ad == 'web' }}
           push: true
