@@ -25,7 +25,7 @@ dalında duruyor ama derleme onu **kullanmıyor** (aşağıda *Güncelleme yorda
 
 | Ne | Neden |
 |---|---|
-| `master` dalı duruyor (paperclip'ten farklı) | Upstream FOSS aynası `.github/workflows` taşımıyor (2026-10-16'da ölçüldü: `.github/` var, `workflows/` yok), yani `master`'da tetiklenecek bir upstream işi yok. Dal, derlenecek commit'lerin bu fork'ta bulunması için gerekli. |
+| `master` dalı duruyor (paperclip'ten farklı) | Upstream FOSS aynası `.github/workflows` taşımıyor (2026-10-16'da ölçüldü: `.github/` var, `workflows/` yok), yani `master`'da tetiklenecek bir upstream işi yok. ~~Dal, derlenecek commit'lerin bu fork'ta bulunması için gerekli.~~ 2026-10-17: derleme artık upstream'den checkout ediyor; dal yalnız fork'un açılışındaki aynayı taşıyor. |
 | Varsayılan dal upstream dosyası taşımıyor | `workflow_dispatch` yalnız varsayılan daldaki workflow için açılıyor; zamanlanmış upstream işleri de yalnız varsayılan daldan koşar. |
 | Sürüm etiketi yok, kimlik commit | PostHog sürüm etiketi yayımlamıyor (upstream `bin/deploy-hobby`: *"PostHog don't create tagged releases anymore"*). İmaj etiketi derlenen commit'in sha'sı. |
 
